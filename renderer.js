@@ -169,6 +169,13 @@ document.addEventListener('DOMContentLoaded', async () => {
       expireDate.setDate(expireDate.getDate() + 30);
       const formattedExpireDate = `${expireDate.getFullYear()}-${String(expireDate.getMonth() + 1).padStart(2, '0')}-${String(expireDate.getDate()).padStart(2, '0')}`;
 
+      // Guess video height from filename, defaults to 1080
+      var videoHeight = '1080';
+      const guessedHeights = selectedFiles.map(file => file.match(/\[\d+P\]/)).filter(x => x);
+      if (guessedHeights.length != 0) {
+        videoHeight = guessedHeights[0][0].slice(1, -2);
+      }
+
       const templateData = {
         magnetLink: torrentInfo.magnetLink,
         torrentFile: torrentInfo.torrentFileName,
@@ -179,6 +186,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         title: document.getElementById('title').value,
         isMovie: document.getElementById('isMovie').checked,
         episode: document.getElementById('episode').value,
+        videoHeight: videoHeight,
         releaseType: document.getElementById('releaseType').value
       };
 
