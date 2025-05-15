@@ -208,6 +208,87 @@ ipcMain.handle('createTorrent', async (event, files, pieceLength) => {
       'udp://utracker.ghostchu-services.top:6969'
     ];
 
+    const readablePromiseForStream = async function (stream) {
+      return new Promise((resolve, _) => {
+        stream.on('readable', () => { resolve(); });
+      });
+    };
+
+    const generatePieces = async function (files) {
+      const pieces = [];
+
+      let pieceHashStream = crypto.createHash('sha1');
+
+      // Represents the number of bytes still needed to complete the piece
+      // currently being accumulated in pieceHashStream.
+      // If 0, pieceHashStream is effectively "empty" or has just been reset
+      // after completing a piece.
+      let bytesNeededForSpanningPiece = 0;
+
+      let currentFileReadOffset = 0;
+
+      for (let i = 0; i < files.length; ++i) {
+        const filePath = files[i];
+
+        if (bytesNeededForSpanningPiece > 0) {
+          const headStream = fs.createReadStream(filePath, {
+            highWaterMark: pieceLength,
+            start: 0,
+            end: bytesNeededForSpanningPiece - 1,
+          });
+          await readablePromiseForStream(headStream);
+
+          let chunkToCompletePiece = headStream.read(bytesNeededForSpanningPiece);
+          if (chunkToCompletePiece === null) {
+            // If the file is smaller than `bytesNeededForSpanningPiece`,
+            // theoretically read again will give back content in buffer.
+            // But it doesn't work while debugging (always return null),
+            // so fallback to try reading with actual readable length.
+            const bytesToRead = Math.min(bytesNeededForSpanningPiece, headStream.readableLength);
+            chunkToCompletePiece = headStream.read(bytesToRead);
+          }
+          headStream.destroy();
+          pieceHashStream.update(chunkToCompletePiece);
+
+          if (chunkToCompletePiece.length < bytesNeededForSpanningPiece) {
+            bytesNeededForSpanningPiece -= chunkToCompletePiece.length;
+
+            currentFileReadOffset = 0;
+            continue;
+          } else {
+            pieces.push(pieceHashStream.digest());
+
+            pieceHashStream = crypto.createHash('sha1');
+            bytesNeededForSpanningPiece = 0;
+
+            currentFileReadOffset = chunkToCompletePiece.length;
+          }
+        }
+
+        const mainReadStream = fs.createReadStream(files[i], {
+          highWaterMark: pieceLength,
+          start: currentFileReadOffset,
+        });
+        currentFileReadOffset = 0;
+
+        for await (const chunk of mainReadStream) {
+          if (chunk.length === pieceLength) {
+            const hash = crypto.createHash('sha1').update(chunk).digest();
+            pieces.push(hash);
+          } else {
+            pieceHashStream.update(chunk);
+            bytesNeededForSpanningPiece = pieceLength - chunk.length;
+          }
+        }
+      }
+
+      if (bytesNeededForSpanningPiece != 0) {
+        pieces.push(pieceHashStream.digest());
+      }
+
+      return Buffer.concat(pieces);
+    };
+
     const torrent = {
       announce: defaultTrackers[0],
       'announce-list': [defaultTrackers],
@@ -216,20 +297,7 @@ ipcMain.handle('createTorrent', async (event, files, pieceLength) => {
         name: torrentName,
         ...(files.length === 1 ? {
           length: fs.statSync(files[0]).size,
-          pieces: (() => {
-            const data = fs.readFileSync(files[0]);
-            const pieces = [];
-            let offset = 0;
-            
-            while (offset < data.length) {
-              const pieceData = data.slice(offset, offset + pieceLength);
-              const hash = crypto.createHash('sha1').update(pieceData).digest();
-              pieces.push(hash);
-              offset += pieceLength;
-            }
-            
-            return Buffer.concat(pieces);
-          })()
+          pieces: await generatePieces(files)
         } : {
           files: files.map(file => {
             console.log('Processing file:', file);
@@ -243,33 +311,10 @@ ipcMain.handle('createTorrent', async (event, files, pieceLength) => {
             };
           }),
           // Generate pieces
-          pieces: (() => {
-          const pieces = [];
-          let piece = Buffer.alloc(0);
-          
-          for (const file of files) {
-            const data = fs.readFileSync(file);
-            piece = Buffer.concat([piece, data]);
-            
-            while (piece.length >= pieceLength) {
-              const pieceData = piece.slice(0, pieceLength);
-              const hash = crypto.createHash('sha1').update(pieceData).digest();
-              pieces.push(hash);
-              piece = piece.slice(pieceLength);
-            }
-          }
-          
-          // Add remaining data if any
-          if (piece.length > 0) {
-            const hash = crypto.createHash('sha1').update(piece).digest();
-            pieces.push(hash);
-          }
-          
-          return Buffer.concat(pieces);
-        })()
-      })
-    }
-  }
+          pieces: await generatePieces(files)
+        })
+      }
+    };
 
     console.log('Created torrent structure:', torrent);
 
