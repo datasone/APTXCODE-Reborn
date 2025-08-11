@@ -176,6 +176,12 @@ document.addEventListener('DOMContentLoaded', async () => {
         videoHeight = guessedHeights[0][0].slice(1, -2);
       }
 
+      // Guess video source from filename, defaults to "BDRIP" for movies, "HDTV" for others
+      var videoSource = isMovie ? "BDRIP" : "HDTV";
+      if (selectedFiles.some(filename => filename.toUpperCase().includes("BDRIP"))) {
+          videoSource = "BDRIP";
+      }
+
       const templateData = {
         magnetLink: torrentInfo.magnetLink,
         torrentFile: torrentInfo.torrentFileName,
@@ -187,6 +193,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         isMovie: document.getElementById('isMovie').checked,
         episode: document.getElementById('episode').value,
         videoHeight: videoHeight,
+        videoSource: videoSource,
         releaseType: document.getElementById('releaseType').value
       };
 
