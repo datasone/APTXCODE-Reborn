@@ -177,7 +177,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       }
 
       // Guess video source from filename, defaults to "BDRIP" for movies, "HDTV" for others
-      var videoSource = isMovie ? "BDRIP" : "HDTV";
+      var videoSource = document.getElementById('isMovie').checked ? "BDRIP" : "HDTV";
       if (selectedFiles.some(filename => filename.toUpperCase().includes("BDRIP"))) {
           videoSource = "BDRIP";
       }
